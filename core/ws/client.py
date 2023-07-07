@@ -14,7 +14,8 @@ def send_ping(ws):
     ping_msg = str({
         "id": _id,
         "type": "metrics.ping",
-        "args": {"t": timestamp}})
+        "args": {"t": timestamp}
+    })
     try:
         ws.send(json.dumps(ping_msg))
         Timer(interval, send_ping, args=(ws,)).start()
@@ -50,7 +51,7 @@ class WebSocketClient(object):
     def on_message(self, ws, message):
         data = json.loads(message)
         if "lobby.historyUpdated" in message:
-            game_data = data["args"].get(self.api.game_id)
+            game_data = data["args"].get(self.api.table_id)
             if game_data:
                 self.api.ws_response = game_data["results"]
                 msg_video = str({
@@ -58,7 +59,7 @@ class WebSocketClient(object):
                         "type": "CLIENT_GAME_RESULT",
                         "value": {
                             "isPlayerWins": 'false',
-                            "result": data["args"].get(self.api.game_id),
+                            "result": data["args"].get(self.api.table_id),
                             "winAmount": 0,
                             "winningChips": {},
                             "payouts": {},
@@ -77,11 +78,13 @@ class WebSocketClient(object):
                                 "width": 1045.328125,
                                 "height": 588
                             },
-                            "gameId": self.api.game_id
+                            "gameId": self.api.table_id
                         }
                     }
                 })
                 self.wss.send(json.dumps(msg_video))
+        elif "roulette.recentResults" in message:
+            self.api.ws_response = data["args"].get("recentResults")
         elif "connection.kickout" in message:
             self.api.websocket_closed = True
 

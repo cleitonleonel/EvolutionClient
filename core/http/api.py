@@ -1,3 +1,4 @@
+import re
 import random
 import requests
 from threading import Thread
@@ -74,8 +75,11 @@ class EvolutionAPI(Browser):
     is_logged = False
     trace_ws = False
     game_id = None
+    table_id = None
+    player_id = None
     evo_user_id = None
     evo_session_id = None
+    all_results = False
 
     def __init__(self, email=None, password=None):
         super().__init__()
@@ -86,7 +90,6 @@ class EvolutionAPI(Browser):
         self.set_headers()
         self.headers = self.get_headers()
         self.get_response()
-        self.auth()
 
     def get_response(self):
         return self.send_request('GET',
@@ -116,9 +119,17 @@ class EvolutionAPI(Browser):
             self.evo_session_id = data.get("session_id")
         return self.response
 
+    def get_all_games_id(self):
+        response = self.get_response()
+        match = re.findall(
+            r'<div class="live-info d-none" data-codigo="(.*?)" data-nome="(.*?)" data-provedor="Evolution2">',
+            response.text
+        )
+        return match
+
     def get_game_player(self):
         payload = {
-            "game": "9c45ebf83907bfae80190294bbfa24a5a42a2523",
+            "game": self.game_id,
             "fornecedor": "slotegrator",
             "mobile": 0,
             "usabonus": 0
@@ -132,6 +143,13 @@ class EvolutionAPI(Browser):
     def launch_game(self):
         self.response = self.send_request("GET",
                                           f"{self.response.json().get('url')}")
+        result_history = len(self.response.history)
+        if result_history > 0:
+            location_history = self.response.history[3 if result_history > 3 else 2].headers.get("Location")
+            if "vt_id" in location_history:
+                self.player_id, self.table_id = re.findall(r"vt_id=([^&]+)?.*table_id=([^&]+)", location_history)[0]
+            else:
+                self.table_id = re.findall(r".*table_id=([^&]+)", location_history)[0]
         payload = {
             "device": "desktop",
             "wrapped": True,
@@ -156,11 +174,17 @@ class EvolutionAPI(Browser):
         payload = {
             "messageFormat": "json",
             "device": "Desktop",
-            "instance": "".join([random.choice(caracteres) for _ in range(6)]),
+            "instance": f'{"".join([random.choice(caracteres) for _ in range(6)])}'
+                        f'-rbrr45gc4vx4brea-{self.player_id or ""}',
             "EVOSESSIONID": self.evo_session_id,
             "client_version": "6.20230530.72609.25899-854ba93305",
         }
-        self.wss_url = f'{WSS_BASE}/public/lobby/socket/v2/{self.evo_user_id}?' \
+        wss_url = f"{WSS_BASE}/public/lobby/socket/v2/{self.evo_user_id}"
+        if self.all_results and self.player_id:
+            wss_url = f"{WSS_BASE}/public/roulette/player/game/{self.table_id}/socket"
+            payload["device"] = payload["instance"]
+            payload["tableConfig"] = self.player_id
+        self.wss_url = f'{wss_url}?' \
                        f'{"&".join(f"{key}={value}" for key, value in payload.items())}'
         self.websocket_client = WebSocketClient(self)
         self.websocket_thread = Thread(
@@ -178,6 +202,7 @@ class EvolutionAPI(Browser):
             self.websocket.close()
             self.websocket_thread.join()
             self.websocket_thread = None
+            self.websocket_closed = True
 
     def websocket_alive(self):
         return self.websocket_thread.is_alive()
