@@ -8,8 +8,8 @@ if __name__ == '__main__':
     # Register account in https://game.novasortebet.com
     evolution = EvolutionAPI("user", "pass")
     # evolution.get_all_games_id()
-    evolution.trace_ws = False
-    evolution.all_results = False
+    evolution.trace_ws = True
+    evolution.all_results = True
     for index, game in enumerate(games):
         print(f"{index}: {game['name']}")
     game_selected = input("Insira o número correspondente ao game que deseja obter dados: ")
