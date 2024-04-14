@@ -1,4 +1,5 @@
 import re
+import json
 import random
 import requests
 from threading import Thread
@@ -7,9 +8,9 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from core.ws.client import WebSocketClient
 
-URL_BASE = 'https://game.novasortebet.com'
-URL_CLIENT = 'https://grt-evo.com'
-WSS_BASE = "wss://grt-evo.com"
+URL_BASE = 'https://novasortebet.com'
+URL_CLIENT = 'https://dpg.evo-games.com'
+WSS_BASE = "wss://dpg.evo-games.com"
 VERSION_API = "0.0.1-professional"
 
 retry_strategy = Retry(
@@ -77,6 +78,8 @@ class EvolutionAPI(Browser):
     game_id = None
     table_id = None
     player_id = None
+    game = None
+    client_version = None
     evo_user_id = None
     evo_session_id = None
     all_results = False
@@ -98,13 +101,9 @@ class EvolutionAPI(Browser):
 
     def auth(self):
         payload = {
+            "login": self.email,
             "username": self.email,
-            "password": self.password,
-            "ajax_serialize": {
-                "username": self.email,
-                "password": self.password
-            },
-            "dtCache": self.get_timestamp()
+            "password": self.password
         }
         self.headers["origin"] = URL_BASE
         self.headers["referer"] = f"{URL_BASE}/cassinoaovivo"
@@ -120,12 +119,28 @@ class EvolutionAPI(Browser):
         return self.response
 
     def get_all_games_id(self):
-        response = self.get_response()
-        match = re.findall(
-            r'<div class="live-info d-none" data-codigo="(.*?)" data-nome="(.*?)" data-provedor="Evolution2">',
-            response.text
-        )
-        return match
+        result_games = []
+        payload = {
+            "ismobile": 0,
+            "categoria": "todos",
+            "fornecedor": "slotegrator_evolution",
+            "ordenar": ""
+        }
+        self.headers["origin"] = URL_BASE
+        self.headers["referer"] = f"{URL_BASE}/cassinoaovivo"
+        self.response = self.send_request("POST",
+                                          f"{URL_BASE}/cassinoaovivo/getInfo",
+                                          json=payload,
+                                          headers=self.headers)
+        if self.response.ok:
+            data = self.response.json()
+            for game in data.get("info")['games']:
+                result_games.append(
+                    {"id": game['gameid'],
+                     "name": game['nome']
+                     }
+                )
+        return result_games
 
     def get_game_player(self):
         payload = {
@@ -138,22 +153,29 @@ class EvolutionAPI(Browser):
                                           f"{URL_BASE}/cassinoaovivo/getgameurl",
                                           data=payload,
                                           headers=self.headers)
-        return self.launch_game()
+        launcher = {}
+        if self.response.ok:
+            launcher = self.launch_game()
+        return launcher
 
     def launch_game(self):
         self.response = self.send_request("GET",
                                           f"{self.response.json().get('url')}")
+        html_page = self.response.text
         result_history = len(self.response.history)
         if result_history > 0:
-            location_history = self.response.history[3 if result_history > 3 else 2].headers.get("Location")
-            if "vt_id" in location_history:
-                self.player_id, self.table_id = re.findall(r"vt_id=([^&]+)?.*table_id=([^&]+)", location_history)[0]
+            location = self.response.history[-1].headers.get("Location")
+            if "vt_id" in location:
+                self.player_id, self.game, self.table_id = re.findall(
+                    r"vt_id=([^&]+)?.*game=([^&]+)&table_id=([^&]+)", location)[0]
             else:
-                self.table_id = re.findall(r".*table_id=([^&]+)", location_history)[0]
+                self.game, self.table_id = re.findall(r".*game=([^&]+)&table_id=([^&]+)", location)[0]
+            self.client_version = re.findall('client_version="(.*?)",', html_page)[0]
+
         payload = {
             "device": "desktop",
             "wrapped": True,
-            "client_version": "6.20230601.72759.25995-e3aa0e2b12"
+            "client_version": self.client_version
         }
         return self.send_request("GET",
                                  f"{URL_CLIENT}/setup",
@@ -175,14 +197,14 @@ class EvolutionAPI(Browser):
             "messageFormat": "json",
             "device": "Desktop",
             "instance": f'{"".join([random.choice(caracteres) for _ in range(6)])}'
-                        f'-rbrr45gc4vx4brea-{self.player_id or ""}',
+                        f'-{self.evo_user_id}-',
             "EVOSESSIONID": self.evo_session_id,
-            "client_version": "6.20230530.72609.25899-854ba93305",
+            "client_version": self.client_version,
         }
         wss_url = f"{WSS_BASE}/public/lobby/socket/v2/{self.evo_user_id}"
         if self.all_results and self.player_id:
-            wss_url = f"{WSS_BASE}/public/roulette/player/game/{self.table_id}/socket"
-            payload["device"] = payload["instance"]
+            wss_url = f"{WSS_BASE}/public/{self.game}/player/game/{self.table_id}/socket"
+            payload["device"] = payload["instance"] + self.player_id or ""
             payload["tableConfig"] = self.player_id
         self.wss_url = f'{wss_url}?' \
                        f'{"&".join(f"{key}={value}" for key, value in payload.items())}'

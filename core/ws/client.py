@@ -85,9 +85,12 @@ class WebSocketClient(object):
                 self.wss.send(json.dumps(msg_video))
         elif "roulette.recentResults" in message:
             self.api.ws_response = data["args"].get("recentResults")
+        elif "bacbo.road" in message:
+            self.api.ws_response = data["args"].get("history")
         elif "roulette.tableState" in message:
             if data["args"]["state"] == "GAME_RESOLVED":
-                self.api.ws_response.insert(0, data["args"]["result"])
+                self.api.ws_response = data["args"]["result"]
+                # self.api.ws_response.insert(0, data["args"]["result"])
         elif "connection.kickout" in message:
             self.api.websocket_closed = True
 
